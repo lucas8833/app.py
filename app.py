@@ -1,8 +1,20 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import base64
 
 st.set_page_config(page_title="Dashboard de Aging - Garantia", layout="wide")
+
+# Logo no canto superior direito
+logo_path = "logo_DFS.png"  # ajuste o nome conforme seu arquivo
+st.markdown(
+    f"""
+    <div style="position: absolute; top: 10px; right: 5px;">
+        <img src="data:image/png;base64,{base64.b64encode(open(logo_path, 'rb').read()).decode()}" width="200"/>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 st.sidebar.title("📊 Navegação")
 pagina = st.sidebar.radio("Escolha a página:", ["Controle Mensal", "Controle Anual"])
