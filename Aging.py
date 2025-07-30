@@ -5,7 +5,7 @@ import base64
 
 st.set_page_config(page_title="Dashboard de Aging - Garantia", layout="wide")
 
-# ✅ Exibir logo na sidebar
+# Exibir logo na sidebar
 def exibir_logo_sidebar(path_logo, largura=200):
     with open(path_logo, "rb") as image_file:
         encoded = base64.b64encode(image_file.read()).decode()
@@ -20,13 +20,13 @@ def exibir_logo_sidebar(path_logo, largura=200):
 
 exibir_logo_sidebar("logo_DFS.png")
 
-# 🔗 Navegação
+# Navegação
 st.sidebar.title("📊 Navegação")
 pagina = st.sidebar.radio("Escolha a página:", ["Controle Mensal", "Controle Anual"])
 
 st.title("🔧 Dashboard de Aging - Garantia Técnica")
 
-# 📂 Leitura do arquivo local
+# Leitura do arquivo local
 caminho_arquivo = "BASE_AGING_2025.xlsx"
 try:
     df = pd.read_excel(caminho_arquivo)
@@ -34,17 +34,17 @@ except FileNotFoundError:
     st.error(f"Arquivo não encontrado em: {caminho_arquivo}")
     st.stop()
 
-# 🔧 Limpeza dos nomes das colunas
+# Limpeza dos nomes das colunas
 df.columns = df.columns.str.strip()
 
-# 🔍 Remover chamados ignorados
+# Remover chamados ignorados
 if 'Ignorar' in df.columns:
     df = df[df['Ignorar'].astype(str).str.strip().str.upper() != 'SIM']
 
-# ✅ Aging baseado na coluna Aging1
+# Aging baseado na coluna Aging1
 df['Aging (dias)'] = df['Aging1']
 
-# 📅 Processamento de datas
+# Processamento de datas
 df['Data_Abertura'] = pd.to_datetime(df['Data'], errors='coerce')
 df['Ano'] = df['Data_Abertura'].dt.year
 df['Mês_Num'] = df['Data_Abertura'].dt.month
@@ -53,10 +53,10 @@ meses_dict = {1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr',
               9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'}
 df['Mês'] = df['Mês_Num'].map(meses_dict)
 
-# ✔️ Filtrar dados válidos
+# Filtrar dados válidos
 df = df.dropna(subset=['Data_Abertura', 'Aging (dias)', 'EC', 'Mantenedor'])
 
-# 🔧 Sidebar - Filtros gerais
+# Sidebar - Filtros gerais
 st.sidebar.subheader("Filtros gerais")
 status_opcoes = df['Status'].dropna().unique().tolist()
 status_selecionado = st.sidebar.multiselect("Status", status_opcoes, default=status_opcoes)
@@ -64,13 +64,13 @@ status_selecionado = st.sidebar.multiselect("Status", status_opcoes, default=sta
 servico_opcoes = df['Serviço'].dropna().unique().tolist()
 servico_selecionado = st.sidebar.multiselect("Serviço", servico_opcoes, default=servico_opcoes)
 
-# 🔍 Aplicar filtros
+# Aplicar filtros
 df_filtrado = df[
     (df['Status'].isin(status_selecionado)) &
     (df['Serviço'].isin(servico_selecionado))
 ]
 
-# 🗓️ Controle Mensal
+# Controle Mensal
 if pagina == "Controle Mensal":
     st.subheader("📅 Controle Mensal")
 
@@ -122,11 +122,11 @@ if pagina == "Controle Mensal":
         else:
             st.dataframe(sa_acima2.sort_values(by='Aging_Médio', ascending=False))
 
-# 📊 Controle Anual
+# Controle Anual
 elif pagina == "Controle Anual":
     st.subheader("📈 Aging Médio YTD")
 
-    # 🔥 Cards do Aging YTD Geral
+    # Cards do Aging YTD Geral
     aging_ytd_geral = df_filtrado.groupby(['Ano'])['Aging (dias)'].mean().reset_index()
 
     colunas = st.columns(len(aging_ytd_geral))
@@ -137,7 +137,7 @@ elif pagina == "Controle Anual":
             value=f"{row['Aging (dias)']:.2f} dias"
         )
 
-    # 🔥 Gráfico de Evolução Mensal (Geral)
+    # Gráfico de Evolução Mensal (Geral)
     st.subheader("📆 Evolução Mensal do Aging Médio")
 
     media_mensal = df_filtrado.groupby(['Ano', 'Mês_Num'])['Aging (dias)'].mean().reset_index()
@@ -146,7 +146,7 @@ elif pagina == "Controle Anual":
     fig_geral = px.line(media_mensal, x='Mês', y='Aging (dias)', color='Ano', markers=True,
                          title="Evolução Mensal do Aging Médio - Geral")
 
-    # ✔️ Linha da Meta (2 dias)
+    # Linha da Meta (2 dias)
     fig_geral.add_shape(
         type="line",
         x0=-0.5, x1=11.5,  # de Jan a Dez
@@ -161,7 +161,7 @@ elif pagina == "Controle Anual":
 
     st.plotly_chart(fig_geral, use_container_width=True)
 
-    # 🔥 Aging por EC - Evolução Mensal
+    # Aging por EC - Evolução Mensal
     st.subheader("📆 Evolução Mensal do Aging por EC")
 
     ec_ano = df_filtrado.groupby(['Ano', 'Mês_Num', 'EC'])['Aging (dias)'].mean().reset_index()
@@ -170,7 +170,7 @@ elif pagina == "Controle Anual":
     fig_ec_ano = px.line(ec_ano, x='Mês', y='Aging (dias)', color='EC', line_group='Ano', markers=True,
                           title="Evolução Mensal do Aging por EC")
 
-    # ✔️ Linha da Meta
+    # Linha da Meta
     fig_ec_ano.add_shape(
         type="line",
         x0=-0.5, x1=11.5,
@@ -185,7 +185,7 @@ elif pagina == "Controle Anual":
 
     st.plotly_chart(fig_ec_ano, use_container_width=True)
 
-    # 🔥 Aging YTD por EC (Gráfico de Barras Horizontal)
+    # Aging YTD por EC (Gráfico de Barras Horizontal)
     st.subheader("📊 Aging Médio YTD por EC")
 
     ec_ytd = df_filtrado.groupby('EC')['Aging (dias)'].mean().reset_index()
@@ -199,7 +199,7 @@ elif pagina == "Controle Anual":
         text_auto=True
     )
 
-    # ✔️ Linha da Meta
+    # Linha da Meta
     fig.add_shape(
         type="line",
         x0=2, x1=2,
@@ -215,7 +215,7 @@ elif pagina == "Controle Anual":
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # 🏆 Ranking SA Anual com EC responsável
+    # Ranking SA Anual com EC responsável
     st.subheader("Ranking de Serviços Autorizados")
 
     ranking_sa = df_filtrado.groupby(['Ano', 'Mantenedor', 'EC']).agg(
@@ -226,6 +226,44 @@ elif pagina == "Controle Anual":
     ranking_sa = ranking_sa.sort_values(by=['Ano', 'Aging_Médio'], ascending=[True, False])
 
     st.dataframe(ranking_sa)
+
+        # Visualização por Especialista (EC)
+    st.subheader("🔍 Visualização por Especialista (EC)")
+
+    ec_opcoes = df_filtrado['EC'].dropna().unique().tolist()
+    ec_selecionado = st.selectbox("Selecione um Especialista (EC):", sorted(ec_opcoes))
+
+    df_ec = df_filtrado[df_filtrado['EC'] == ec_selecionado]
+
+    if df_ec.empty:
+        st.warning("Nenhum dado disponível para o especialista selecionado.")
+    else:
+        resumo_ec = df_ec.groupby('Mantenedor').agg(
+            Qtde_Chamados=('Aging (dias)', 'count'),
+            Aging_Médio=('Aging (dias)', 'mean'),
+        ).reset_index().sort_values(by='Aging_Médio', ascending=False)
+
+        st.dataframe(resumo_ec)
+
+        fig_sa_por_ec = px.bar(
+            resumo_ec,
+            x='Aging_Médio',
+            y='Mantenedor',
+            orientation='h',
+            title=f"Aging Médio por SA - {ec_selecionado}",
+            text_auto='.2f'
+        )
+
+        # Linha da meta
+        fig_sa_por_ec.add_shape(
+            type="line",
+            x0=2, x1=2,
+            y0=-0.5, y1=len(resumo_ec) - 0.5,
+            line=dict(color="red", width=2, dash="dash"),
+            xref='x', yref='y'
+        )
+
+        st.plotly_chart(fig_sa_por_ec, use_container_width=True)
 
 else:
     st.info("⬆️ Coloque o arquivo BASE_AGING_2025.xlsx na mesma pasta do app para iniciar.")
