@@ -3,30 +3,33 @@ import pandas as pd
 import plotly.express as px
 import base64
 
+# ---------------------------
+# CONFIGURAÇÕES INICIAIS
+# ---------------------------
 st.set_page_config(page_title="Dashboard de Aging - Garantia", layout="wide")
 
-# Exibir logo na sidebar
 def exibir_logo_sidebar(path_logo, largura=200):
-    with open(path_logo, "rb") as image_file:
-        encoded = base64.b64encode(image_file.read()).decode()
-    st.sidebar.markdown(
-        f"""
-        <div style="display: flex; justify-content: center;">
-            <img src="data:image/png;base64,{encoded}" width="{largura}">
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    try:
+        with open(path_logo, "rb") as image_file:
+            encoded = base64.b64encode(image_file.read()).decode()
+        st.sidebar.markdown(
+            f"""
+            <div style="display: flex; justify-content: center;">
+                <img src="data:image/png;base64,{encoded}" width="{largura}">
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        st.sidebar.warning("⚠️ Logo não encontrada (logo_DFS.png).")
 
 exibir_logo_sidebar("logo_DFS.png")
 
-# Navegação
-st.sidebar.title("📊 Navegação")
-pagina = st.sidebar.radio("Escolha a página:", ["Controle Mensal", "Controle Anual"])
-
+# ---------------------------
+# LEITURA E PREPARO DOS DADOS
+# ---------------------------
 st.title("🔧 Dashboard de Aging - Garantia Técnica")
 
-# Leitura do arquivo local
 caminho_arquivo = "BASE_AGING_2025.xlsx"
 try:
     df = pd.read_excel(caminho_arquivo)
@@ -34,7 +37,6 @@ except FileNotFoundError:
     st.error(f"Arquivo não encontrado em: {caminho_arquivo}")
     st.stop()
 
-# Limpeza dos nomes das colunas
 df.columns = df.columns.str.strip()
 
 # Remover chamados ignorados
@@ -53,11 +55,23 @@ meses_dict = {1: 'Jan', 2: 'Fev', 3: 'Mar', 4: 'Abr',
               9: 'Set', 10: 'Out', 11: 'Nov', 12: 'Dez'}
 df['Mês'] = df['Mês_Num'].map(meses_dict)
 
-# Filtrar dados válidos
-df = df.dropna(subset=['Data_Abertura', 'Aging (dias)', 'EC', 'Mantenedor'])
+# Limpeza de espaços e exclusão de vazios em EC e Mantenedor
+df['EC'] = df['EC'].astype(str).str.strip()
+df['Mantenedor'] = df['Mantenedor'].astype(str).str.strip()
+df = df[(df['EC'] != "") & (df['Mantenedor'] != "")]
+df = df.dropna(subset=['Data_Abertura', 'Aging (dias)'])
 
-# Sidebar - Filtros gerais
-st.sidebar.subheader("Filtros gerais")
+# ---------------------------
+# SIDEBAR - FILTROS
+# ---------------------------
+st.sidebar.title("📊 Filtros gerais")
+
+anos_disponiveis = sorted(df['Ano'].dropna().unique())
+ano_selecionado = st.sidebar.selectbox("Ano:", anos_disponiveis, index=len(anos_disponiveis)-1)
+
+meses_disponiveis = sorted(df[df['Ano'] == ano_selecionado]['Mês_Num'].dropna().unique())
+mes_selecionado = st.sidebar.selectbox("Mês:", meses_disponiveis)
+
 status_opcoes = df['Status'].dropna().unique().tolist()
 status_selecionado = st.sidebar.multiselect("Status", status_opcoes, default=status_opcoes)
 
@@ -66,207 +80,163 @@ servico_selecionado = st.sidebar.multiselect("Serviço", servico_opcoes, default
 
 # Aplicar filtros
 df_filtrado = df[
+    (df['Ano'] == ano_selecionado) &
+    (df['Mês_Num'] == mes_selecionado) &
     (df['Status'].isin(status_selecionado)) &
     (df['Serviço'].isin(servico_selecionado))
 ]
 
-# Controle Mensal
-if pagina == "Controle Mensal":
-    st.subheader("📅 Controle Mensal")
+# Botão de download
+st.sidebar.markdown("### 📥 Exportar Dados")
+csv_full = df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button(
+    label="📄 Baixar planilha completa",
+    data=csv_full,
+    file_name='aging_completo.csv',
+    mime='text/csv'
+)
 
-    ano = st.sidebar.selectbox("Ano:", sorted(df_filtrado['Ano'].unique()))
-    mes = st.sidebar.selectbox("Mês:", sorted(df_filtrado['Mês_Num'].unique()))
+# ---------------------------
+# TABS PRINCIPAIS (3)
+# ---------------------------
+aba1, aba2, aba3 = st.tabs([
+    "📈 Controle Anual",
+    "📅 Controle Mensal",
+    "🔍 Análise Detalhada"
+])
 
-    df_mensal = df_filtrado[(df_filtrado['Ano'] == ano) & (df_filtrado['Mês_Num'] == mes)]
+# =========================================================
+# 📈 CONTROLE ANUAL (YTD)
+# =========================================================
+with aba1:
+    st.subheader(f"📈 Controle Anual - {ano_selecionado}")
 
-    if df_mensal.empty:
-        st.warning("Nenhum dado para o período selecionado.")
+    df_ano = df[df['Ano'] == ano_selecionado]
+
+    if df_ano.empty:
+        st.warning("Nenhum dado disponível para o ano selecionado.")
     else:
-        col1, col2 = st.columns(2)
-        col1.metric("Aging Médio", f"{df_mensal['Aging (dias)'].mean():.2f} dias")
-        col2.metric("Maior Aging", f"{df_mensal['Aging (dias)'].max()} dias")
+        # Aging médio geral do ano
+        aging_geral = df_ano['Aging (dias)'].mean()
+        st.metric("Aging Médio YTD", f"{aging_geral:.1f} dias")
 
-        # 🔥 Aging por EC (com linha da meta)
-        st.subheader("Aging por EC")
-        ec_df = df_mensal.groupby('EC')['Aging (dias)'].mean().reset_index()
+        # Evolução mensal
+        media_mensal = df_ano.groupby('Mês_Num')['Aging (dias)'].mean().reset_index()
+        media_mensal['Mês'] = media_mensal['Mês_Num'].map(meses_dict)
 
-        fig_ec = px.bar(
-            ec_df, x='EC', y='Aging (dias)',
-            title="Aging por EC",
-            text_auto=True
+        fig_geral = px.line(
+            media_mensal, x='Mês', y='Aging (dias)', markers=True,
+            title="Evolução Mensal do Aging Médio"
         )
+        fig_geral.update_traces(texttemplate='%{y:.1f}', textposition='top center')
+        fig_geral.add_shape(type="line", x0=-0.5, x1=11.5, y0=2, y1=2,
+                            line=dict(color="red", width=2, dash="dash"))
+        st.plotly_chart(fig_geral, use_container_width=True)
 
-        # ✔️ Linha da meta (2 dias)
-        fig_ec.add_shape(
-            type="line",
-            x0=-0.5, x1=len(ec_df)-0.5,
-            y0=2, y1=2,
-            line=dict(color="red", width=2, dash="dash"),
-            xref='x', yref='y'
+        # Aging médio YTD por EC
+        ec_ytd = df_ano.groupby('EC')['Aging (dias)'].mean().reset_index()
+        fig_ec_ytd = px.bar(
+            ec_ytd, x='Aging (dias)', y='EC', orientation='h', text_auto='.1f',
+            title="Aging Médio YTD por EC"
         )
+        fig_ec_ytd.add_shape(type="line", x0=2, x1=2, y0=-0.5, y1=len(ec_ytd)-0.5,
+                             line=dict(color="red", width=2, dash="dash"))
+        st.plotly_chart(fig_ec_ytd, use_container_width=True)
 
-        st.plotly_chart(fig_ec, use_container_width=True)
+        # 🔹 Performance dos SAs (Anual)
+        st.subheader("📊 Performance dos SAs - Anual")
 
-        # 🔥 Tabela de Serviços Autorizados com Aging > 2 (incluindo EC)
-        st.subheader("Serviços Autorizados com Aging > 2")
+        meta_aging = 2
+        sa_perf = df_ano.groupby('Mantenedor')['Aging (dias)'].mean().reset_index()
+        percentual_meta = (sa_perf['Aging (dias)'] <= meta_aging).mean() * 100
+        st.metric("✅ % de SAs dentro da meta (≤ 2 dias)", f"{percentual_meta:.1f}%")
 
-        sa_df = df_mensal.groupby(['Mantenedor', 'EC']).agg(
+        ranking_df = df_ano.groupby('Mantenedor').agg(
             Qtde_Chamados=('Aging (dias)', 'count'),
             Aging_Médio=('Aging (dias)', 'mean')
         ).reset_index()
+        ranking_df['Aging_Médio'] = ranking_df['Aging_Médio'].round(1)
+        top10_melhores = ranking_df.sort_values(by='Aging_Médio').head(10)
+        top10_piores = ranking_df.sort_values(by='Aging_Médio', ascending=False).head(10)
 
-        sa_acima2 = sa_df[sa_df['Aging_Médio'] > 2]
+        col1, col2 = st.columns(2)
+        col1.markdown("**🔹 Top 10 Melhores (Aging baixo)**")
+        col1.dataframe(top10_melhores, use_container_width=True)
 
-        if sa_acima2.empty:
-            st.success("Nenhum SA com Aging acima de 2 dias!")
-        else:
-            st.dataframe(sa_acima2.sort_values(by='Aging_Médio', ascending=False))
+        col2.markdown("**🔸 Top 10 Piores (Aging alto)**")
+        col2.dataframe(top10_piores, use_container_width=True)
 
-# Controle Anual
-elif pagina == "Controle Anual":
-    st.subheader("📈 Aging Médio YTD")
+# =========================================================
+# 📅 CONTROLE MENSAL
+# =========================================================
+with aba2:
+    st.subheader(f"📅 Controle Mensal - {meses_dict[mes_selecionado]} / {ano_selecionado}")
 
-    # Cards do Aging YTD Geral
-    aging_ytd_geral = df_filtrado.groupby(['Ano'])['Aging (dias)'].mean().reset_index()
-
-    colunas = st.columns(len(aging_ytd_geral))
-
-    for idx, row in aging_ytd_geral.iterrows():
-        colunas[idx].metric(
-            label=f"Ano {int(row['Ano'])}",
-            value=f"{row['Aging (dias)']:.2f} dias"
-        )
-
-    # Gráfico de Evolução Mensal (Geral)
-    st.subheader("📆 Evolução Mensal do Aging Médio")
-
-    media_mensal = df_filtrado.groupby(['Ano', 'Mês_Num'])['Aging (dias)'].mean().reset_index()
-    media_mensal['Mês'] = media_mensal['Mês_Num'].map(meses_dict)
-
-    fig_geral = px.line(media_mensal, x='Mês', y='Aging (dias)', color='Ano', markers=True,
-                         title="Evolução Mensal do Aging Médio - Geral")
-
-    # Linha da Meta (2 dias)
-    fig_geral.add_shape(
-        type="line",
-        x0=-0.5, x1=11.5,  # de Jan a Dez
-        y0=2, y1=2,
-        line=dict(color="red", width=2, dash="dash"),
-        xref='x', yref='y'
-    )
-
-    fig_geral.update_layout(
-        xaxis={'categoryorder': 'array', 'categoryarray': list(meses_dict.values())}
-    )
-
-    st.plotly_chart(fig_geral, use_container_width=True)
-
-    # Aging por EC - Evolução Mensal
-    st.subheader("📆 Evolução Mensal do Aging por EC")
-
-    ec_ano = df_filtrado.groupby(['Ano', 'Mês_Num', 'EC'])['Aging (dias)'].mean().reset_index()
-    ec_ano['Mês'] = ec_ano['Mês_Num'].map(meses_dict)
-
-    fig_ec_ano = px.line(ec_ano, x='Mês', y='Aging (dias)', color='EC', line_group='Ano', markers=True,
-                          title="Evolução Mensal do Aging por EC")
-
-    # Linha da Meta
-    fig_ec_ano.add_shape(
-        type="line",
-        x0=-0.5, x1=11.5,
-        y0=2, y1=2,
-        line=dict(color="red", width=2, dash="dash"),
-        xref='x', yref='y'
-    )
-
-    fig_ec_ano.update_layout(
-        xaxis={'categoryorder': 'array', 'categoryarray': list(meses_dict.values())}
-    )
-
-    st.plotly_chart(fig_ec_ano, use_container_width=True)
-
-    # Aging YTD por EC (Gráfico de Barras Horizontal)
-    st.subheader("📊 Aging Médio YTD por EC")
-
-    ec_ytd = df_filtrado.groupby('EC')['Aging (dias)'].mean().reset_index()
-
-    fig = px.bar(
-        ec_ytd,
-        x='Aging (dias)',
-        y='EC',
-        orientation='h',
-        title="Aging Médio YTD por EC",
-        text_auto=True
-    )
-
-    # Linha da Meta
-    fig.add_shape(
-        type="line",
-        x0=2, x1=2,
-        y0=-0.5, y1=len(ec_ytd)-0.5,
-        line=dict(color="red", width=2, dash="dash"),
-        xref='x', yref='y'
-    )
-
-    fig.update_layout(
-        yaxis={'categoryorder': 'total ascending'},
-        showlegend=False
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Ranking SA Anual com EC responsável
-    st.subheader("Ranking de Serviços Autorizados")
-
-    ranking_sa = df_filtrado.groupby(['Ano', 'Mantenedor', 'EC']).agg(
-        Qtde_Chamados=('Aging (dias)', 'count'),
-        Aging_Médio=('Aging (dias)', 'mean')
-    ).reset_index()
-
-    ranking_sa = ranking_sa.sort_values(by=['Ano', 'Aging_Médio'], ascending=[True, False])
-
-    st.dataframe(ranking_sa)
-
-        # Visualização por Especialista (EC)
-    st.subheader("🔍 Visualização por Especialista (EC)")
-
-    ec_opcoes = df_filtrado['EC'].dropna().unique().tolist()
-    ec_selecionado = st.selectbox("Selecione um Especialista (EC):", sorted(ec_opcoes))
-
-    df_ec = df_filtrado[df_filtrado['EC'] == ec_selecionado]
-
-    if df_ec.empty:
-        st.warning("Nenhum dado disponível para o especialista selecionado.")
+    if df_filtrado.empty:
+        st.warning("Nenhum dado para o período selecionado.")
     else:
-        resumo_ec = df_ec.groupby('Mantenedor').agg(
+        col1, col2 = st.columns(2)
+        col1.metric("Aging Médio", f"{df_filtrado['Aging (dias)'].mean():.1f} dias")
+        col2.metric("Maior Aging", f"{df_filtrado['Aging (dias)'].max():.1f} dias")
+
+        # 🔹 Aging por EC
+        st.subheader("Aging por EC")
+        ec_df = df_filtrado.groupby('EC')['Aging (dias)'].mean().reset_index()
+        fig_ec = px.bar(ec_df, x='EC', y='Aging (dias)', text_auto='.1f', title="Aging por EC")
+        fig_ec.add_shape(type="line", x0=-0.5, x1=len(ec_df)-0.5, y0=2, y1=2,
+                         line=dict(color="red", width=2, dash="dash"))
+        st.plotly_chart(fig_ec, use_container_width=True)
+
+        # 🔹 Performance dos SAs (Mensal)
+        st.subheader("📊 Performance dos SAs - Mensal")
+
+        meta_aging = 2
+        sa_perf = df_filtrado.groupby('Mantenedor')['Aging (dias)'].mean().reset_index()
+        percentual_meta = (sa_perf['Aging (dias)'] <= meta_aging).mean() * 100
+        st.metric("✅ % de SAs dentro da meta (≤ 2 dias)", f"{percentual_meta:.1f}%")
+
+        ranking_df = df_filtrado.groupby('Mantenedor').agg(
             Qtde_Chamados=('Aging (dias)', 'count'),
-            Aging_Médio=('Aging (dias)', 'mean'),
-        ).reset_index().sort_values(by='Aging_Médio', ascending=False)
+            Aging_Médio=('Aging (dias)', 'mean')
+        ).reset_index()
+        ranking_df['Aging_Médio'] = ranking_df['Aging_Médio'].round(1)
+        top10_melhores = ranking_df.sort_values(by='Aging_Médio').head(10)
+        top10_piores = ranking_df.sort_values(by='Aging_Médio', ascending=False).head(10)
 
-        st.dataframe(resumo_ec)
+        col1, col2 = st.columns(2)
+        col1.markdown("**🔹 Top 10 Melhores (Aging baixo)**")
+        col1.dataframe(top10_melhores, use_container_width=True)
 
-        fig_sa_por_ec = px.bar(
-            resumo_ec,
-            x='Aging_Médio',
-            y='Mantenedor',
-            orientation='h',
-            title=f"Aging Médio por SA - {ec_selecionado}",
-            text_auto='.2f'
-        )
+        col2.markdown("**🔸 Top 10 Piores (Aging alto)**")
+        col2.dataframe(top10_piores, use_container_width=True)
 
-        # Linha da meta
-        fig_sa_por_ec.add_shape(
-            type="line",
-            x0=2, x1=2,
-            y0=-0.5, y1=len(resumo_ec) - 0.5,
-            line=dict(color="red", width=2, dash="dash"),
-            xref='x', yref='y'
-        )
+# =========================================================
+# 🔍 ANÁLISE DETALHADA
+# =========================================================
+with aba3:
+    st.subheader("📈 Tendência Mensal do Aging por SA")
 
-        st.plotly_chart(fig_sa_por_ec, use_container_width=True)
+    sa_tendencia = df[df['Ano'] == ano_selecionado].groupby(['Mantenedor', 'Mês_Num'])['Aging (dias)'].mean().reset_index()
+    sa_tendencia['Mês'] = sa_tendencia['Mês_Num'].map(meses_dict)
+    sa_tendencia['Aging (dias)'] = sa_tendencia['Aging (dias)'].round(1)
 
-else:
-    st.info("⬆️ Coloque o arquivo BASE_AGING_2025.xlsx na mesma pasta do app para iniciar.")
+    sa_selecionado = st.selectbox("Selecione um Serviço Autorizado:", sorted(sa_tendencia['Mantenedor'].unique()))
+    df_sa = sa_tendencia[sa_tendencia['Mantenedor'] == sa_selecionado]
+
+    if df_sa.empty:
+        st.warning("Nenhum dado disponível para o SA selecionado.")
+    else:
+        fig_sa_tendencia = px.line(df_sa, x='Mês', y='Aging (dias)', markers=True,
+                                   title=f"Tendência Mensal - {sa_selecionado}")
+        fig_sa_tendencia.add_shape(type="line", x0=-0.5, x1=11.5, y0=2, y1=2,
+                                   line=dict(color="red", width=2, dash="dash"))
+        st.plotly_chart(fig_sa_tendencia, use_container_width=True)
+        st.dataframe(df_sa, use_container_width=True)
+
+
+
+
+
 
 
 
