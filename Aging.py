@@ -30,7 +30,7 @@ exibir_logo_sidebar("logo_DFS.png")
 # ---------------------------
 st.title("🔧 Dashboard de Aging - Garantia Técnica")
 
-caminho_arquivo = "BASE_AGING_2025.xlsx"
+caminho_arquivo = "BASE_AGING_2026.xlsx"
 try:
     df = pd.read_excel(caminho_arquivo)
 except FileNotFoundError:
